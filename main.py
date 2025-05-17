@@ -1,5 +1,5 @@
 import json
-from functions.create_json import create_structured_json
+from functions.create_nir_json import create_structured_json
 from functions.upload_nir_to_postgres import upload_json_to_postgres
 from functions.upload_dumas_to_postgres import upload_dumas_to_postgres
 
@@ -18,17 +18,14 @@ def main():
     postgres_uri = f"postgresql+psycopg2://{pg['user']}:{pg['password']}@{pg['host']}:{pg['port']}/{pg['database']}"
 
     print("📦 Step 1: Creating structured NIR JSON...")
-    create_structured_json(dx_file, json_file)
+    create_structured_json(dx_file, json_file, log_path="logs/create_nir_json.log")
 
     print("🛢 Step 2: Uploading NIR data to PostgreSQL...")
     upload_json_to_postgres(json_file, postgres_uri, log_path="logs/upload_json_to_postgres.log")
 
     print("🧪 Step 3: Uploading Dumas biochemical results...")
-    upload_dumas_to_postgres(
-    file_paths=params["dumas_files"],
-    db_uri=postgres_uri,
-    log_path="logs/upload_dumas_to_postgres.log"
-)
+    upload_dumas_to_postgres(params["source_folder"], postgres_uri)
+
 
 
 if __name__ == "__main__":

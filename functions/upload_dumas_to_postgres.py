@@ -1,8 +1,9 @@
 import pandas as pd
 import re
+import os
+from pathlib import Path
 from sqlalchemy import create_engine, text
 from datetime import datetime
-import os
 
 def clean_column_name(col_name):
     col_name = col_name.strip()
@@ -13,36 +14,77 @@ def clean_column_name(col_name):
     return col_name.lower()
 
 def read_device1_file(path):
-    return pd.read_csv(path, sep='\t', skiprows=1, engine="python", on_bad_lines='skip')
+    df = pd.read_csv(path, sep='\t', skiprows=1, engine="python", on_bad_lines='skip')
+    df["source_file"] = path.name  # Track source file
+    return df
 
-def upload_dumas_to_postgres(file_paths, db_uri, log_path="dumas_loader.log"):
+def upload_dumas_to_postgres(folder_path, db_uri, log_path="logs/dumas_loader.log"):
     log_lines = []
 
     def log(msg):
-        print(msg)
-        log_lines.append(f"{datetime.now().isoformat()} - {msg}")
+        timestamp = f"{datetime.now().isoformat()} - {msg}"
+        print(timestamp)
+        log_lines.append(timestamp)
 
-    os.makedirs(os.path.dirname(log_path), exist_ok=True)
+    log_dir = os.path.dirname(log_path)
+    if log_dir:
+        os.makedirs(log_dir, exist_ok=True)
 
-    # 🧾 קריאה מרשימת קבצים
+    folder = Path(folder_path)
+    file_paths = sorted([f for f in folder.iterdir() if f.name.lower().startswith("device1") and f.name.lower().endswith(".csv") and f.is_file()])
+
+    if not file_paths:
+        log(f"❌ No files matching 'Device1*.csv' found in: {folder_path}")
+        return
+
+    log(f"📥 Found {len(file_paths)} file(s): {[f.name for f in file_paths]}")
+
     dfs = []
     for path in file_paths:
         try:
             df = read_device1_file(path)
             dfs.append(df)
-            log(f"✅ Read file: {path} ({df.shape[0]} rows)")
+            log(f"✅ Loaded: {path.name} ({df.shape[0]} rows)")
         except Exception as e:
-            log(f"❌ Failed to read {path}: {e}")
+            log(f"❌ Failed to read {path.name}: {e}")
 
     if not dfs:
-        log("❌ No valid Dumas files provided.")
+        log("❌ No valid Dumas files to process.")
         return
 
     df = pd.concat(dfs, ignore_index=True).drop_duplicates()
     df = df.loc[:, ~df.columns.str.contains("^Unnamed")]
     df.columns = [clean_column_name(col) for col in df.columns]
+    df = df.rename(columns={"name": "title"})
 
-    log(f"📊 Total combined rows after cleaning: {df.shape[0]}")
+    log(f"📊 Combined rows after cleaning: {df.shape[0]}")
+
+    # === Validations ===
+    required_cols = ["no", "hole_pos", "weight_mg", "title", "method",
+        "n_area", "n_percent", "n_mg", "n_factor", "n_blank",
+        "protein_percent", "protein_mg", "protein_factor",
+        "moisture_percent", "memo", "info", "date_time"]
+    missing_cols = [col for col in required_cols if col not in df.columns]
+    if missing_cols:
+        log(f"❌ Missing required columns: {missing_cols}")
+        return
+
+    if df["title"].isna().any():
+        log(f"⚠️ Found {df['title'].isna().sum()} rows with missing title")
+        df = df.dropna(subset=["title"])
+
+    dupes = df["title"].duplicated().sum()
+    if dupes > 0:
+        log(f"⚠️ Found {dupes} duplicate title rows")
+
+    if (df["n_percent"] < 0).any():
+        log("❌ Negative nitrogen % detected")
+
+    if (df["protein_percent"] > 100).any():
+        log("⚠️ Protein % over 100 detected")
+
+    if "weight_mg" in df.columns and (df["weight_mg"] <= 0).any():
+        log("❌ Non-positive weights found")
 
     # Parse datetime
     if "date_time" in df.columns:
@@ -56,17 +98,14 @@ def upload_dumas_to_postgres(file_paths, db_uri, log_path="dumas_loader.log"):
     df["date"] = df["datetime"].dt.date
     df["time"] = df["datetime"].dt.time
 
-    df = df.rename(columns={"name": "title"})
+    if df["datetime"].isna().sum() > 0:
+        log("⚠️ Some rows missing parsed datetime")
 
-    missing_titles = df["title"].isna().sum()
-    if missing_titles > 0:
-        log(f"⚠️ {missing_titles} rows missing 'title' — dropped")
-        df = df.dropna(subset=["title"])
+    
 
-    # Connect to PostgreSQL
     engine = create_engine(db_uri)
 
-    ddl = """
+    ddl = '''
     DROP TABLE IF EXISTS dumas_results CASCADE;
 
     CREATE TABLE dumas_results (
@@ -89,9 +128,10 @@ def upload_dumas_to_postgres(file_paths, db_uri, log_path="dumas_loader.log"):
         info TEXT,
         date DATE,
         time TIME,
-        datetime TIMESTAMP
+        datetime TIMESTAMP,
+        source_file TEXT
     );
-    """
+    '''
 
     with engine.connect() as conn:
         for stmt in ddl.strip().split(";"):
@@ -104,7 +144,7 @@ def upload_dumas_to_postgres(file_paths, db_uri, log_path="dumas_loader.log"):
         "no", "hole_pos", "weight_mg", "title", "method",
         "n_area", "n_percent", "n_mg", "n_factor", "n_blank",
         "protein_percent", "protein_mg", "protein_factor",
-        "moisture_percent", "memo", "info", "date", "time", "datetime"
+        "moisture_percent", "memo", "info", "date", "time", "datetime", "source_file"
     ]
 
     df_to_upload = df[upload_cols]

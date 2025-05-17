@@ -29,6 +29,7 @@ def normalize_block(block):
         "lastx": float(block.get("LASTX", 0)),
         "npoints": int(block.get("NPOINTS", 0)),
         "deltax": float(block.get("DELTAX", 0)),
+        "source_file": block.get("SOURCE_FILE")
     }
 
 def row_fingerprint(block_dict):
@@ -74,6 +75,7 @@ def upload_json_to_postgres(json_path, db_uri, log_path="logs/nir_loader.log"):
         lastx FLOAT,
         npoints INTEGER,
         deltax FLOAT,
+        source_file VARCHAR(100),
         valid_from TIMESTAMP,
         valid_to TIMESTAMP,
         is_current BOOLEAN DEFAULT TRUE,
@@ -121,7 +123,7 @@ def upload_json_to_postgres(json_path, db_uri, log_path="logs/nir_loader.log"):
                        smoothed, xunits, yunits, concentrations, perten_types,
                        perten_repack, perten_repeat, perten_subscan,
                        perten_goodrepacks, perten_totalrepacks, perten_rejected,
-                       perten_sampleinfo, xfactor, yfactor, firstx, lastx, npoints, deltax
+                       perten_sampleinfo, xfactor, yfactor, firstx, lastx, npoints, deltax, source_file
                 FROM nir_headers
                 WHERE title = :title AND is_current = true
             """), {"title": title}).fetchone()
@@ -152,7 +154,7 @@ def upload_json_to_postgres(json_path, db_uri, log_path="logs/nir_loader.log"):
                         perten_repack, perten_repeat, perten_subscan,
                         perten_goodrepacks, perten_totalrepacks, perten_rejected,
                         perten_sampleinfo, xfactor, yfactor, firstx, lastx,
-                        npoints, deltax, valid_from, valid_to, is_current
+                        npoints, deltax, source_file, valid_from, valid_to, is_current
                     ) VALUES (
                         :title, :date, :instrument_sn, :spectrometer_sn,
                         :instrument_type, :sample_description, :smoothed,
@@ -160,7 +162,7 @@ def upload_json_to_postgres(json_path, db_uri, log_path="logs/nir_loader.log"):
                         :perten_repack, :perten_repeat, :perten_subscan,
                         :perten_goodrepacks, :perten_totalrepacks, :perten_rejected,
                         :perten_sampleinfo, :xfactor, :yfactor, :firstx, :lastx,
-                        :npoints, :deltax, :valid_from, :valid_to, true
+                        :npoints, :deltax, :source_file, :valid_from, :valid_to, true
                     )
                 """), {
                     **block_dict,
