@@ -1,5 +1,5 @@
 import json
-from functions.create_nir_json import create_structured_json
+from functions.create_json import create_structured_json
 from functions.upload_nir_to_postgres import upload_json_to_postgres
 from functions.upload_dumas_to_postgres import upload_dumas_to_postgres
 
