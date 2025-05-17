@@ -1,0 +1,14 @@
+{
+  "file_name": "Device2_20241230",
+  "dx_file": "input_files/Device2_20241230.dx",
+  "json_file": "output_files/Device2_20241230.json",
+  "dumas_files": ["input_files/Device1_20241230.csv",
+                 "input_files/Device1_20241231.csv"],
+  "postgres": {
+    "host": "localhost",
+    "port": 5432,
+    "database": "postgres",
+    "user": "postgres",
+    "password": "123456"
+  }
+}
